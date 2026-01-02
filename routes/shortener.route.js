@@ -1,13 +1,13 @@
 import { Router } from "express";
 import {
-  getHomePage,
+  getShortnerPage,
   redirectToShortLink,
   saveLinks,
 } from "../controllers/shortener.controller.js";
 
 const router = Router();
 
-router.get("/", getHomePage);
+router.get("/", getShortnerPage);
 router.get("/:shortCode", redirectToShortLink);
 router.post("/shorten", saveLinks);
 

@@ -4,10 +4,6 @@ import { shortenerTable } from "../drizzle/schema.js";
 
 // ! using drizzle
 
-// const users = await db.select().from(shortenerTable);
-// console.log(users);
-
-
 export const getAllShortLinks = async ()=>{
     return await db.select().from(shortenerTable);
 }
