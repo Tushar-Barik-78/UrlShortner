@@ -503,6 +503,10 @@ footer .social-links a:hover {
   color: var(--accent);
 }
 
+.delete-btn{
+  color: rgb(201, 3, 3);
+}
+
 .copy-btn i {
   font-size: 1.8rem;
 }

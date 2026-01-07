@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/style.css" />
     <link
       rel="stylesheet"
-      href="fonts/material-icon/css/material-design-iconic-font.min.css"
+      href="https://cdn.jsdelivr.net/npm/material-design-iconic-font@2.2.0/dist/css/material-design-iconic-font.min.css"
     />
   </head>
   <body>
@@ -56,7 +56,11 @@
                   />
                 </div>
 
-
+                <!-- ! display flash message -->
+                <% if(errors && errors.length>0){ %> <%
+                errors.forEach((error)=>{ %>
+                <p class="flash-error"><%= error %></p>
+                <% }) %> <% } %>
 
                 <div class="form-group form-button">
                   <input

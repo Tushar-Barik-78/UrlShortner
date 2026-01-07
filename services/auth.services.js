@@ -3,6 +3,7 @@ import { db } from "../config/db.js";
 import { userTable } from "../drizzle/schema.js";
 import bcrypt from "bcryptjs";
 import argon2 from "argon2";
+import jwt from 'jsonwebtoken';
 
 export const getUserByEmail = async (email) => {
   const [user] = await db.select().from(userTable).where(eq(userTable.email, email));
@@ -14,7 +15,6 @@ export const createUser = async ({name, email, password}) => {
 };
 
 // export const verifyUser = async ({email,password})=>{
-
 //     const [user] = await db.select().from(userTable).where(and(eq(userTable.email,email),eq(userTable.password,password)));
 //     return user;
 // }
@@ -29,4 +29,15 @@ export const comparePassword = async(password,hash)=>{
   // return await bcrypt.compare(password,hash);  //! using bcrypt
   return await argon2.verify(hash,password);    //! using argon2
 
+}
+
+// ! JSON Web Token
+export const generateToken = async({id,name,email})=>{
+  return jwt.sign({id,name,email}, process.env.JWT_SECRET,{
+    expiresIn:"10d"
+  })
+}
+
+export const verifyJWTToken = async(token)=>{
+  return jwt.verify(token,process.env.JWT_SECRET);
 }

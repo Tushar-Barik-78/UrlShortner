@@ -1,0 +1,2 @@
+ALTER TABLE `shortenerTable` ADD `user_id` int NOT NULL;--> statement-breakpoint
+ALTER TABLE `shortenerTable` ADD CONSTRAINT `shortenerTable_user_id_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE no action ON UPDATE no action;
