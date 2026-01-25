@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "5",
-      "when": 1767015941198,
-      "tag": "0000_fixed_crusher_hogan",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1767016166063,
-      "tag": "0001_perfect_ted_forrester",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1767274360632,
-      "tag": "0002_messy_mockingbird",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1767612422382,
-      "tag": "0003_strong_madripoor",
+      "when": 1768028017301,
+      "tag": "0000_bent_karma",
       "breakpoints": true
     }
   ]
