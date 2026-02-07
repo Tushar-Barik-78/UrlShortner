@@ -1,7 +1,12 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "../config/db.js";
-import { sessionsTable, userTable } from "../drizzle/schema.js";
+import {
+  sessionsTable,
+  userTable,
+  verifyEmailTokensTable,
+} from "../drizzle/schema.js";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import {
@@ -50,6 +55,8 @@ export const generateToken = async ({ id, name, email }) => {
 // };
 
 // ! Hybrid authentication
+
+// * Create user session in the sessions table
 export const createSession = async (userId, { ip, userAgent }) => {
   const [session] = await db
     .insert(sessionsTable)
@@ -59,89 +66,24 @@ export const createSession = async (userId, { ip, userAgent }) => {
   return session;
 };
 
+// * Create access token
 export const createAccessToken = ({ id, name, email, sessionId }) => {
   return jwt.sign({ id, name, email, sessionId }, process.env.JWT_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRY / MILLISECONDS_PER_SECOND,
   });
 };
 
+// * Create refresh token
 export const createRefreshToken = ({ sessionId }) => {
   return jwt.sign({ sessionId }, process.env.JWT_SECRET, {
     expiresIn: REFRESH_TOKEN_EXPIRY / MILLISECONDS_PER_SECOND,
   });
 };
 
-export const findSessionById = async (sessionId) => {
-  const [sessionData] = await db
-    .select()
-    .from(sessionsTable)
-    .where(eq(sessionsTable.id, sessionId));
-  // console.log(sessionData);
-
-  return sessionData;
-};
-
-export const findUserById = async (userId) => {
-  const [user] = await db
-    .select()
-    .from(userTable)
-    .where(eq(userTable.id, userId));
-  // console.log(user);
-  return user;
-};
-
-// ! Return a new access token, new session token and user data
-export const refreshTokens = async (refreshToken) => {
-  try {
-    const decodedToken = await verifyJWTToken(refreshToken);
-    const currentDBSession = await findSessionById(decodedToken.sessionId);
-
-    if (!currentDBSession || !currentDBSession.valid) {
-      throw new Error("Invalid session");
-    }
-
-    const userId = currentDBSession.userId;
-    const user = await findUserById(userId);
-    if (!user) throw new Error("Invalid user");
-
-    const userInfo = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      sessionId: currentDBSession.id,
-    };
-    const newAccessToken = createAccessToken(userInfo);
-    const newRefreshToken = createRefreshToken({
-      sessionId: currentDBSession.id,
-    });
-
-    return {
-      newAccessToken,
-      newRefreshToken,
-      user: userInfo,
-    };
-  } catch (error) {
-    console.log(error.message);
-  }
-};
-
-export const verifyJWTToken = async (token) => {
-  return jwt.verify(token, process.env.JWT_SECRET);
-};
-
-export const clearUserSession = async (sessionId) => {
-  // console.log(sessionId);
-  // console.log(typeof sessionId);
-
-  const [deletedSession] = await db.delete(sessionsTable).where(eq(sessionsTable.id, sessionId));
-  console.log(deletedSession);
-  
-};
-
+//todo Create cookies for hybrid authentication from login or signup
 export const createCookies = async ({ user, req, res, name, email }) => {
-  
   const userId = user.id || user.insertId;
-  
+
   const session = await createSession(userId, {
     ip: req.clientIp,
     userAgent: req.headers["user-agent"],
@@ -151,6 +93,7 @@ export const createCookies = async ({ user, req, res, name, email }) => {
     id: userId,
     name: user.name || name,
     email: user.email || email,
+    isEmailValid: user.isEmailValid || false,
     sessionId: session.id,
   });
   const refreshToken = createRefreshToken({
@@ -171,4 +114,179 @@ export const createCookies = async ({ user, req, res, name, email }) => {
     ...baseConfig,
     maxAge: REFRESH_TOKEN_EXPIRY,
   });
+};
+
+// ! verify refresh token and again generate new tokens
+// * Find session by ID
+export const findSessionById = async (sessionId) => {
+  const [sessionData] = await db
+    .select()
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId));
+  // console.log(sessionData);
+
+  return sessionData;
+};
+
+// * Find user by ID
+export const findUserById = async (userId) => {
+  const [user] = await db
+    .select()
+    .from(userTable)
+    .where(eq(userTable.id, userId));
+  // console.log(user);
+  return user;
+};
+
+//todo Return a new access token, create new session token and user data
+export const refreshTokens = async (refreshToken) => {
+  try {
+    const decodedToken = await verifyJWTToken(refreshToken);
+    const currentDBSession = await findSessionById(decodedToken.sessionId);
+
+    if (!currentDBSession || !currentDBSession.valid) {
+      throw new Error("Invalid session");
+    }
+
+    const userId = currentDBSession.userId;
+    const user = await findUserById(userId);
+    if (!user) throw new Error("Invalid user");
+
+    const userInfo = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      isEmailValid: user.isEmailValid,
+      sessionId: currentDBSession.id,
+    };
+    const newAccessToken = createAccessToken(userInfo);
+    const newRefreshToken = createRefreshToken({
+      sessionId: currentDBSession.id,
+    });
+
+    return {
+      newAccessToken,
+      newRefreshToken,
+      user: userInfo,
+    };
+  } catch (error) {
+    console.log(error.message);
+  }
+};
+
+// * Verify JWT Token
+export const verifyJWTToken = async (token) => {
+  return jwt.verify(token, process.env.JWT_SECRET);
+};
+
+// * Clear user session on logout
+export const clearUserSession = async (sessionId) => {
+  // console.log(sessionId);
+  // console.log(typeof sessionId);
+
+  const [deletedSession] = await db
+    .delete(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId));
+  console.log(deletedSession);
+};
+
+// ! Email verification
+export const generateRandomToken = (digit = 8) => {
+  const min = 10 ** (digit - 1); // 10000000
+  const max = 10 ** digit; //100000000
+
+  return crypto.randomInt(min, max).toString();
+};
+
+export const insertVerifyEmailToken = async ({ userId, token }) => {
+  await db.transaction(async (tx) => {
+    try {
+      //* delete all the expired tokens
+      await tx
+        .delete(verifyEmailTokensTable)
+        .where(lt(verifyEmailTokensTable.expiresAt, sql`CURRENT_TIMESTAMP`));
+
+      //* delete all the previous token of same user
+      await tx
+        .delete(verifyEmailTokensTable)
+        .where(eq(verifyEmailTokensTable.userId, userId));
+
+      //* insert new token to the database
+      await tx.insert(verifyEmailTokensTable).values({ userId, token });
+    } catch (error) {
+      console.log(error);
+    }
+  });
+};
+
+// createVerifyEmailLink
+export const createVerifyEmailLink = async ({ email, token }) => {
+  // const uriEncodedEmail = encodeURIComponent(email);
+  // return `${process.env.FRONTEND_URL}/verify-email-token?token=${token}&email=${uriEncodedEmail}`;
+
+  const url = new URL(`${process.env.FRONTEND_URL}/verify-email-token`);
+  url.searchParams.append("token", token);
+  url.searchParams.append("email", email);
+
+  // console.log(url);
+
+  return url.toString();
+};
+
+// ! Finally Verify the email By clicking the link
+export const findVerificationEmailToken = async ({ email, token }) => {
+  // console.log(email,token);
+  
+  const tokenData = await db
+    .select({
+      userId: verifyEmailTokensTable.userId,
+      token: verifyEmailTokensTable.token,
+      expiresAt: verifyEmailTokensTable.expiresAt,
+    })
+    .from(verifyEmailTokensTable)
+    .where(
+      and(
+        eq(verifyEmailTokensTable.token, token),
+        gte(verifyEmailTokensTable.expiresAt, sql`CURRENT_TIMESTAMP`),
+      ),
+    );
+  // console.log(tokenData);
+
+  if (!tokenData.length) {
+    return null;
+  }
+
+  const { userId } = tokenData[0];
+
+  const userData = await db
+    .select({
+      userId: userTable.id,
+      email: userTable.email,
+    })
+    .from(userTable)
+    .where(eq(userTable.id, userId));
+
+  if (!userData.length) {
+    return null;
+  }
+
+  return {
+    userId: userId,
+    email: userData[0].email,
+    token: token,
+    expiresAt: tokenData[0].expiresAt,
+  };
+};
+
+export const verifyUserEmailAndUpdate = async (email) => {
+  return await db
+    .update(userTable)
+    .set({ isEmailValid: true })
+    .where(eq(userTable.email, email));
+};
+
+export const clearVerifyEmailTokens = async (email) => {
+  const [user] = await db.select().from(userTable).where(eq(userTable.email,email));
+
+  return await db.delete(verifyEmailTokensTable).where(eq(verifyEmailTokensTable.userId,user.id))
 };

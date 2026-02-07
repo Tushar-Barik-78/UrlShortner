@@ -1,4 +1,4 @@
-import z, { email } from "zod";
+import z, { email, int } from "zod";
 
 export const loginUserSchema = z.object({
   email: z
@@ -34,3 +34,8 @@ export const registerUserSchema = loginUserSchema.extend({
 });
 
 
+// ! zod validation for verify Email
+export const verifyEmailSchema = z.object({
+  email : z.email().max(100,"Email is greater than 100 of length"),
+  token: z.string().trim().length(8),
+})
