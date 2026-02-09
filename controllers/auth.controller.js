@@ -12,6 +12,7 @@ import {
   getUserByEmail,
   hashPassword,
   insertVerifyEmailToken,
+  sendNewVerifyEmailLink,
   verifyUserEmailAndUpdate,
 } from "../services/auth.services.js";
 import { getAllShortLinks } from "../services/shortener.service.js";
@@ -64,7 +65,7 @@ export const postRegister = async (req, res) => {
   const hashedPassword = await hashPassword(password);
 
   const [newUser] = await createUser({ name, email, password: hashedPassword });
-  console.log(newUser);
+  // console.log(newUser);
 
   await createCookies({
     user: newUser,
@@ -74,7 +75,11 @@ export const postRegister = async (req, res) => {
     email,
   });
 
-  res.redirect("/");
+  //! verify ur email after sign up
+  await sendNewVerifyEmailLink({ userId: newUser.id, email: email });
+  // console.log(newUser.id);
+  
+  res.redirect("/verify-email");
 };
 
 export const postLogin = async (req, res) => {
@@ -171,65 +176,42 @@ export const getEmailVerifyPage = async (req, res) => {
   });
 };
 
-export const resendVerificationLink = async (req,res)=>{
-  if(!req.user) return res.redirect("/login");
+export const resendVerificationLink = async (req, res) => {
+  if (!req.user) return res.redirect("/login");
   const user = await findUserById(req.user.id);
-  if(!user || user.isEmailValid) return res.redirect("/");
+  if (!user || user.isEmailValid) return res.redirect("/");
 
-  const randomToken = generateRandomToken();
-  // console.log(user, randomToken);
-  
-
-  await insertVerifyEmailToken({userId:user.id , token: randomToken});
-
-
-  const verifyEmailLink = await createVerifyEmailLink({
-    email: user.email,
-    token: randomToken,
-  })
-
-  Sendmail({
-    to: req.user.email,
-    subject: "Verify your email",
-    html:`
-      <h1>Click the link below to verify your email</h1>
-      <p>You can use this 8-digit code: <code>${randomToken}</code></p>
-      <a href="${verifyEmailLink}">Verify email</a>
-    `
-  }).catch(console.error);
+  await sendNewVerifyEmailLink({ userId: req.user.id, email: req.user.email });
 
   res.redirect("/verify-email");
+};
 
 
-}
 
+export const verifyEmailFromParams = async (req, res) => {
+  const { data, error } = verifyEmailSchema.safeParse(req.query);
 
-export const verifyEmailFromParams = async (req,res)=>{
-  const {data, error} = verifyEmailSchema.safeParse(req.query);
-
-  if(error){
+  if (error) {
     return res.send("Verification link is invalid or expired");
   }
 
-  // * Make a function to 
+  // * Make a function to
   // * 1.check token is present or not in the database
-  // * 2. check the token is expired or not 
+  // * 2. check the token is expired or not
   // * 3. get the user details belongs to that token
-  const token = await findVerificationEmailToken(data);
-  console.log("~ Verification ~ Token:",token);
-  if(!token) return res.send("Verification link is invalid or expired")
-  
+  // const token = await findVerificationEmailToken(data);
+  const [token] = await findVerificationEmailToken(data);
+  console.log("~ Verification ~ Token:", token);
+  if (!token) return res.send("Verification link is invalid or expired");
 
-  // * Make another function to 
+  // * Make another function to
   // * 1. check req.user.email === user.email from token
   // * 2. update the user details i.e isEmailValid --> TRUE
   await verifyUserEmailAndUpdate(token.email);
 
   // * Make one last function to clear the token of verified user
   await clearVerifyEmailTokens(token.email).catch(console.error);
-  
-  
+
   // * return to  profile page
   res.redirect("/profile");
-  
-}
+};

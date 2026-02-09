@@ -1,5 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "../config/db.js";
+import fs from "fs/promises";
 import {
   sessionsTable,
   userTable,
@@ -14,6 +15,11 @@ import {
   MILLISECONDS_PER_SECOND,
   REFRESH_TOKEN_EXPIRY,
 } from "../config/constant.js";
+import path from "path";
+import mjml2html from "mjml";
+import ejs from "ejs";
+// import { Sendmail } from "../lib/nodeMailer.js";
+import { Sendmail } from "../lib/send-email.js";
 
 export const getUserByEmail = async (email) => {
   const [user] = await db
@@ -24,7 +30,10 @@ export const getUserByEmail = async (email) => {
 };
 
 export const createUser = async ({ name, email, password }) => {
-  return await db.insert(userTable).values({ name, email, password });
+  return await db
+    .insert(userTable)
+    .values({ name, email, password })
+    .$returningId();
 };
 
 // export const verifyUser = async ({email,password})=>{
@@ -233,13 +242,100 @@ export const createVerifyEmailLink = async ({ email, token }) => {
   return url.toString();
 };
 
+export const sendNewVerifyEmailLink = async ({ userId, email }) => {
+  const randomToken = generateRandomToken();
+  // console.log(user, randomToken);
+
+  await insertVerifyEmailToken({ userId: userId, token: randomToken });
+
+  const verifyEmailLink = await createVerifyEmailLink({
+    email: email,
+    token: randomToken,
+  });
+
+  //* 1. get the file data of mjml
+  const mjmlTemplate = await fs.readFile(
+    path.join(import.meta.dirname, "..", "emails", "verify-email.mjml"),
+    "utf-8"
+  );
+  // console.log(mjmlTemplate);
+
+  //* to replace the placeholder with the actual values
+  const filledTemplate = ejs.render(mjmlTemplate, {
+    code: randomToken,
+    link: verifyEmailLink,
+  });
+  // console.log(filledTemplate);
+  
+
+  // * To convert mjml to html
+  const htmlOutput = mjml2html(filledTemplate).html;
+  // console.log(htmlOutput);
+  
+
+  Sendmail({
+    to: email,
+    subject: "Verify your email",
+    // html: `
+    //     <h1>Click the link below to verify your email</h1>
+    //     <p>You can use this 8-digit code: <code>${randomToken}</code></p>
+    //     <a href="${verifyEmailLink}">Verify email</a>
+    //   `,
+    html: htmlOutput,
+  }).catch(console.error);
+};
+
 // ! Finally Verify the email By clicking the link
+// export const findVerificationEmailToken = async ({ email, token }) => {
+//   // console.log(email,token);
+
+//   const tokenData = await db
+//     .select({
+//       userId: verifyEmailTokensTable.userId,
+//       token: verifyEmailTokensTable.token,
+//       expiresAt: verifyEmailTokensTable.expiresAt,
+//     })
+//     .from(verifyEmailTokensTable)
+//     .where(
+//       and(
+//         eq(verifyEmailTokensTable.token, token),
+//         gte(verifyEmailTokensTable.expiresAt, sql`CURRENT_TIMESTAMP`),
+//       ),
+//     );
+//   // console.log(tokenData);
+
+//   if (!tokenData.length) {
+//     return null;
+//   }
+
+//   const { userId } = tokenData[0];
+
+//   const userData = await db
+//     .select({
+//       userId: userTable.id,
+//       email: userTable.email,
+//     })
+//     .from(userTable)
+//     .where(eq(userTable.id, userId));
+
+//   if (!userData.length) {
+//     return null;
+//   }
+
+//   return {
+//     userId: userId,
+//     email: userData[0].email,
+//     token: token,
+//     expiresAt: tokenData[0].expiresAt,
+//   };
+// };
 export const findVerificationEmailToken = async ({ email, token }) => {
   // console.log(email,token);
-  
-  const tokenData = await db
+
+  return await db
     .select({
-      userId: verifyEmailTokensTable.userId,
+      userID: userTable.id,
+      email: userTable.email,
       token: verifyEmailTokensTable.token,
       expiresAt: verifyEmailTokensTable.expiresAt,
     })
@@ -247,35 +343,11 @@ export const findVerificationEmailToken = async ({ email, token }) => {
     .where(
       and(
         eq(verifyEmailTokensTable.token, token),
+        eq(userTable.email, email),
         gte(verifyEmailTokensTable.expiresAt, sql`CURRENT_TIMESTAMP`),
       ),
-    );
-  // console.log(tokenData);
-
-  if (!tokenData.length) {
-    return null;
-  }
-
-  const { userId } = tokenData[0];
-
-  const userData = await db
-    .select({
-      userId: userTable.id,
-      email: userTable.email,
-    })
-    .from(userTable)
-    .where(eq(userTable.id, userId));
-
-  if (!userData.length) {
-    return null;
-  }
-
-  return {
-    userId: userId,
-    email: userData[0].email,
-    token: token,
-    expiresAt: tokenData[0].expiresAt,
-  };
+    )
+    .innerJoin(userTable, eq(verifyEmailTokensTable.userId, userTable.id));
 };
 
 export const verifyUserEmailAndUpdate = async (email) => {
@@ -286,7 +358,12 @@ export const verifyUserEmailAndUpdate = async (email) => {
 };
 
 export const clearVerifyEmailTokens = async (email) => {
-  const [user] = await db.select().from(userTable).where(eq(userTable.email,email));
+  const [user] = await db
+    .select()
+    .from(userTable)
+    .where(eq(userTable.email, email));
 
-  return await db.delete(verifyEmailTokensTable).where(eq(verifyEmailTokensTable.userId,user.id))
+  return await db
+    .delete(verifyEmailTokensTable)
+    .where(eq(verifyEmailTokensTable.userId, user.id));
 };
